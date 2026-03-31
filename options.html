@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grammar Checker - Settings</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #f0f2f5;
+            --bg-card: #ffffff;
+            --text: #1a1a2e;
+            --text-muted: #555;
+            --border: #ddd;
+            --blue: #3498db;
+            --info-bg: #e8f4fc;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #12121e;
+                --bg-card: #1e1e2e;
+                --text: #e0e0f0;
+                --text-muted: #a0a0c0;
+                --border: #2e2e48;
+                --info-bg: #1a2a3a;
+            }
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 640px;
+            margin: 40px auto;
+            padding: 20px;
+            background: var(--bg);
+            color: var(--text);
+        }
+        h1 { font-size: 24px; margin-bottom: 24px; }
+        .card {
+            background: var(--bg-card);
+            padding: 24px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+        .card h2 { font-size: 16px; margin-bottom: 16px; color: var(--text); }
+        label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; color: var(--text-muted); }
+        select, input[type="text"], input[type="password"], input[type="number"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 16px;
+            transition: border-color 0.2s;
+            background: var(--bg-card);
+            color: var(--text);
+        }
+        select:focus, input:focus { outline: none; border-color: var(--blue); }
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+        }
+        .toggle-row label { margin-bottom: 0; }
+        .toggle-hint { font-size: 12px; color: #888; margin-top: 2px; }
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; inset: 0;
+            background: #ccc; border-radius: 24px;
+            cursor: pointer; transition: 0.3s;
+        }
+        .slider:before {
+            content: "";
+            position: absolute; width: 18px; height: 18px;
+            left: 3px; bottom: 3px;
+            background: white; border-radius: 50%;
+            transition: 0.3s;
+        }
+        .switch input:checked + .slider { background: #3498db; }
+        .switch input:checked + .slider:before { transform: translateX(20px); }
+        .password-wrapper { position: relative; margin-bottom: 16px; }
+        .password-wrapper input { margin-bottom: 0; padding-right: 44px; }
+        .password-toggle {
+            position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+            background: none; border: none; cursor: pointer;
+            font-size: 18px; color: #888; padding: 4px;
+        }
+        .password-toggle:hover { color: #555; }
+        .btn-group { display: flex; gap: 10px; margin-top: 8px; }
+        button {
+            padding: 10px 24px;
+            border: none; border-radius: 8px;
+            cursor: pointer; font-size: 14px; font-weight: 600;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.85; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-small {
+            padding: 6px 14px;
+            font-size: 13px;
+        }
+        .status {
+            margin-top: 12px; padding: 10px 14px;
+            border-radius: 8px; font-size: 14px; display: none;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .info-box {
+            background: var(--info-bg); padding: 14px;
+            border-radius: 8px; font-size: 13px; line-height: 1.6;
+            margin-bottom: 16px;
+            color: var(--text);
+        }
+        .info-box a { color: var(--blue); }
+        .info-box code {
+            background: rgba(52,152,219,0.15); padding: 2px 6px; border-radius: 4px;
+            font-size: 12px; word-break: break-all;
+        }
+        .shortcut { display: inline-block; background: #eee; padding: 2px 8px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+
+        /* Tag list */
+        .tag-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+        .tag-input-row input { flex: 1; margin-bottom: 0; }
+        .tag-input-row button { white-space: nowrap; }
+        .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; min-height: 24px; }
+        .tag {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 10px;
+            background: var(--info-bg);
+            border-radius: 16px;
+            font-size: 13px;
+            color: var(--blue);
+        }
+        .tag-remove {
+            cursor: pointer; font-size: 14px; color: #999;
+            background: none; border: none; padding: 0; line-height: 1;
+        }
+        .tag-remove:hover { color: #e74c3c; }
+        .empty-hint { font-size: 12px; color: #aaa; font-style: italic; }
+
+        /* Radio group */
+        .radio-row { display: flex; gap: 16px; margin-bottom: 12px; }
+        .radio-row label {
+            display: flex; align-items: center; gap: 6px;
+            font-weight: normal; cursor: pointer; margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Grammar Checker Settings</h1>
+
+    <!-- General -->
+    <div class="card">
+        <h2>General</h2>
+        <div class="toggle-row">
+            <div>
+                <label>Auto-check while typing</label>
+                <div class="toggle-hint">Automatically check grammar in text fields</div>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="autoCheck" checked>
+                <span class="slider"></span>
+            </label>
+        </div>
+        <div class="toggle-row">
+            <div>
+                <label>Clipboard Monitor</label>
+                <div class="toggle-hint">Show a toast when copied text has grammar issues</div>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="clipboardMonitor">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <label for="checkInterval">Check delay (seconds)</label>
+        <input type="number" id="checkInterval" min="1" max="30" value="3" step="1">
+        <label for="language">Language</label>
+        <select id="language">
+            <option value="auto">Auto-detect</option>
+            <option value="English" selected>English</option>
+            <option value="Vietnamese">Tiếng Việt</option>
+            <option value="Spanish">Español</option>
+            <option value="French">Français</option>
+            <option value="German">Deutsch</option>
+            <option value="Japanese">日本語</option>
+            <option value="Korean">한국어</option>
+            <option value="Chinese">中文</option>
+            <option value="Portuguese">Português</option>
+            <option value="Russian">Русский</option>
+            <option value="Indonesian">Bahasa Indonesia</option>
+            <option value="Thai">ภาษาไทย</option>
+        </select>
+    </div>
+
+    <!-- API Configuration -->
+    <div class="card">
+        <h2>API Configuration</h2>
+        <label for="apiType">Provider</label>
+        <select id="apiType">
+            <option value="hybrid">Hybrid (Fast + Smart) — Recommended</option>
+            <option value="languagetool">LanguageTool (Free & Fast)</option>
+            <option value="openai">OpenAI</option>
+            <option value="local">Custom API (OpenAI-compatible)</option>
+        </select>
+
+        <div id="hybridSettings">
+            <div class="info-box">
+                <strong>Hybrid Mode</strong> — Best of both worlds.<br>
+                LanguageTool (instant rule-based) + LLM (smart AI) run <strong>in parallel</strong>.<br>
+                Results are merged and deduplicated. Total time ≈ LLM time, but catches more errors.<br><br>
+                Configure your LLM provider below:
+            </div>
+            <label for="hybridLlmType">LLM Backend</label>
+            <select id="hybridLlmType">
+                <option value="openai">OpenAI</option>
+                <option value="local">Custom API (OpenAI-compatible)</option>
+            </select>
+        </div>
+
+        <div id="languagetoolSettings" style="display:none;">
+            <div class="info-box">
+                <strong>LanguageTool</strong> — Free, fast grammar checking (~200ms per request).<br>
+                Uses the <a href="https://languagetool.org" target="_blank">LanguageTool</a> open API. No API key needed.<br><br>
+                <strong>Note:</strong> Rewrite, Tone Detection, and Translation require an LLM provider (switch to Hybrid or OpenAI).
+            </div>
+        </div>
+
+        <div id="openaiSettings" style="display:none;">
+            <label for="apiKey">API Key</label>
+            <div class="password-wrapper">
+                <input type="password" id="apiKey" placeholder="sk-...">
+                <button type="button" class="password-toggle" id="toggleApiKey" title="Show/hide">👁</button>
+            </div>
+            <label for="model">Model</label>
+            <select id="model">
+                <option value="gpt-4o">GPT-4o (Recommended)</option>
+                <option value="gpt-4o-mini">GPT-4o Mini (Cheaper)</option>
+                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Cheapest)</option>
+            </select>
+        </div>
+
+        <div id="customSettings" style="display:none;">
+            <label for="localUrl">API Endpoint URL</label>
+            <input type="text" id="localUrl" placeholder="http://localhost:11434/v1/chat/completions">
+            <label for="localApiKey">API Key (optional for local servers)</label>
+            <div class="password-wrapper">
+                <input type="password" id="localApiKey" placeholder="Leave empty for local servers">
+                <button type="button" class="password-toggle" id="toggleLocalKey" title="Show/hide">👁</button>
+            </div>
+            <label for="localModel">Model Name</label>
+            <input type="text" id="localModel" placeholder="llama3, mistral, etc.">
+            <div class="info-box">
+                <strong>Common endpoints:</strong><br>
+                Ollama: <code>http://localhost:11434/v1/chat/completions</code><br>
+                LM Studio: <code>http://localhost:1234/v1/chat/completions</code><br>
+                Groq: <code>https://api.groq.com/openai/v1/chat/completions</code><br>
+                OpenRouter: <code>https://openrouter.ai/api/v1/chat/completions</code><br>
+                Together: <code>https://api.together.xyz/v1/chat/completions</code>
+            </div>
+        </div>
+
+        <div class="btn-group">
+            <button id="saveBtn" class="btn-primary">Save Settings</button>
+            <button id="testBtn" class="btn-success">Test Connection</button>
+        </div>
+        <div id="status" class="status"></div>
+    </div>
+
+    <!-- Domain Control -->
+    <div class="card">
+        <h2>Domain Control</h2>
+        <div class="toggle-hint" style="margin-bottom:12px;">Control which websites auto-check runs on.</div>
+
+        <div class="radio-row">
+            <label><input type="radio" name="domainMode" value="blocklist" checked> Blocklist (skip these sites)</label>
+            <label><input type="radio" name="domainMode" value="allowlist"> Allowlist (only these sites)</label>
+        </div>
+
+        <div class="tag-input-row">
+            <input type="text" id="domainInput" placeholder="e.g. github.com" style="margin-bottom:0;">
+            <button id="addDomainBtn" class="btn-primary btn-small">Add</button>
+        </div>
+        <div class="tag-list" id="domainList"></div>
+        <div class="empty-hint" id="domainHint">No domains configured — auto-check runs everywhere.</div>
+    </div>
+
+    <!-- Custom Dictionary -->
+    <div class="card">
+        <h2>Custom Dictionary</h2>
+        <div class="toggle-hint" style="margin-bottom:12px;">Words added here won't be flagged as errors.</div>
+
+        <div class="tag-input-row">
+            <input type="text" id="dictInput" placeholder="e.g. OpenClaw, VSCode" style="margin-bottom:0;">
+            <button id="addDictBtn" class="btn-primary btn-small">Add</button>
+        </div>
+        <div class="tag-list" id="dictList"></div>
+        <div class="empty-hint" id="dictHint">No custom words added.</div>
+    </div>
+
+    <!-- Data -->
+    <div class="card">
+        <h2>Data</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <div style="font-size:14px;color:#555;">Correction History</div>
+                <div class="toggle-hint" id="historyInfo">Loading...</div>
+            </div>
+            <button id="clearHistoryBtn" class="btn-danger btn-small">Clear History</button>
+        </div>
+    </div>
+
+    <!-- Info -->
+    <div class="card">
+        <div class="info-box">
+            <strong>Keyboard shortcuts:</strong><br>
+            <span class="shortcut">Ctrl+Shift+G</span> — Check selected text<br>
+            <span class="shortcut">Ctrl+Shift+F</span> — Fix all errors in active field<br><br>
+            <strong>Side Panel:</strong> Open from the popup for full features (Rewrite, Rephrase, Tone, Translate, Stats, History Chart).<br><br>
+            <strong>Privacy:</strong> Your API key is stored locally. No data is collected by this extension.
+        </div>
+    </div>
+
+    <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grammar Checker</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #f5f7fa;
+            --bg-card: #ffffff;
+            --bg-alt: #f0f2f5;
+            --text: #1a1a2e;
+            --text-muted: #888;
+            --border: #e8e8e8;
+            --blue: #3498db;
+            --blue-dark: #2980b9;
+            --green: #27ae60;
+            --red: #e74c3c;
+            --orange: #f39c12;
+            --purple: #8e44ad;
+            --shadow: rgba(0,0,0,0.06);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #12121e;
+                --bg-card: #1e1e2e;
+                --bg-alt: #252535;
+                --text: #e0e0f0;
+                --text-muted: #888ab0;
+                --border: #2e2e48;
+                --shadow: rgba(0,0,0,0.3);
+            }
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- Mode tabs --- */
+        .mode-bar {
+            display: flex;
+            gap: 4px;
+            padding: 10px 10px 8px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+        }
+        .mode-btn {
+            padding: 5px 10px;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            background: var(--bg-card);
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .mode-btn:hover { border-color: var(--blue); color: var(--blue); }
+        .mode-btn.active { background: var(--blue); color: white; border-color: var(--blue); }
+
+        /* --- Session stats strip --- */
+        .session-strip {
+            display: flex;
+            gap: 12px;
+            padding: 6px 12px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .session-stat { display: flex; align-items: center; gap: 4px; }
+        .session-stat strong { color: var(--blue); }
+
+        /* --- Main content --- */
+        .main {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        textarea {
+            width: 100%;
+            min-height: 110px;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: inherit;
+            line-height: 1.5;
+            resize: vertical;
+            background: var(--bg-card);
+            color: var(--text);
+        }
+        textarea:focus { outline: none; border-color: var(--blue); }
+
+        /* --- Stats bar --- */
+        .stats-bar {
+            padding: 5px 8px;
+            font-size: 11px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 8px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .stats-bar .readability {
+            font-weight: 600;
+            padding: 1px 6px;
+            border-radius: 8px;
+            font-size: 10px;
+        }
+
+        /* --- Options area --- */
+        .options-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+        .options-row label { font-size: 12px; color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+        .options-row select {
+            flex: 1;
+            padding: 5px 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 12px;
+            background: var(--bg-card);
+            color: var(--text);
+        }
+        .options-row select:focus { outline: none; border-color: var(--blue); }
+
+        /* --- Buttons --- */
+        .btn-row { display: flex; gap: 8px; margin-bottom: 10px; }
+        .action-btn {
+            flex: 1;
+            padding: 9px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+        .action-btn:hover { opacity: 0.85; }
+        .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: var(--blue); color: white; }
+        .btn-secondary { background: var(--bg-alt); color: var(--text-muted); }
+
+        /* --- Results --- */
+        .results { display: none; }
+        .result-card {
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+            background: var(--bg-card);
+        }
+        .result-success { background: #f0fdf4; color: #15803d; text-align: center; font-weight: 500; }
+        .result-error-item { background: var(--bg-alt); border-left: 3px solid var(--red); padding-left: 12px; }
+        .result-error-msg { background: #fef2f2; color: #c0392b; }
+        .result-raw { background: var(--bg-alt); white-space: pre-wrap; color: var(--text); }
+        .result-loading { background: var(--bg-alt); color: var(--text-muted); text-align: center; font-style: italic; }
+        .result-rewrite {
+            background: var(--bg-alt); border-left: 3px solid var(--blue);
+            padding: 12px; white-space: pre-wrap; color: var(--text);
+        }
+        .result-rephrase-card {
+            background: var(--bg-alt);
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: border-color 0.2s, transform 0.15s;
+        }
+        .result-rephrase-card:hover { border-color: var(--blue); transform: translateX(2px); }
+        .rephrase-num {
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            color: var(--blue); margin-bottom: 4px; letter-spacing: 0.5px;
+        }
+        .rephrase-text { color: var(--text); font-size: 13px; line-height: 1.5; }
+        .result-tone { background: var(--bg-alt); border-left: 3px solid var(--orange); padding: 12px; }
+        .result-translate { background: var(--bg-alt); padding: 12px; }
+        .error-line { margin-bottom: 2px; }
+        .error-line.wrong { color: var(--red); }
+        .error-line.correct { color: var(--green); }
+        .error-line.reason { color: var(--text-muted); font-style: italic; font-size: 12px; }
+
+        /* Stream/typing effect */
+        .result-stream { white-space: pre-wrap; background: var(--bg-alt); padding: 10px; border-radius: 8px; color: var(--text); }
+        .stream-cursor {
+            display: inline-block;
+            width: 2px; height: 14px;
+            background: var(--blue);
+            animation: gc-blink 0.7s infinite;
+            vertical-align: middle;
+            margin-left: 1px;
+        }
+        @keyframes gc-blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+        .copy-btn {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 4px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg-card);
+            cursor: pointer;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .copy-btn:hover { background: var(--bg-alt); }
+
+        /* --- Tone result --- */
+        .tone-field { margin-bottom: 6px; color: var(--text); }
+        .tone-label { font-weight: 600; color: var(--text-muted); }
+        .tone-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-weight: 600; font-size: 13px; }
+
+        /* --- Translation result --- */
+        .translate-section { margin-bottom: 10px; }
+        .translate-heading {
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 6px;
+        }
+
+        /* --- History --- */
+        .history-section {
+            border-top: 1px solid var(--border);
+            margin-top: 14px;
+            padding-top: 10px;
+        }
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            cursor: pointer;
+        }
+        .history-header h3 { font-size: 13px; color: var(--text-muted); }
+        .history-toggle { font-size: 11px; color: var(--text-muted); }
+        .history-list { max-height: 280px; overflow-y: auto; }
+        .history-item {
+            padding: 8px 10px;
+            background: var(--bg-card);
+            border-radius: 6px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            transition: border-color 0.2s;
+        }
+        .history-item:hover { border-color: var(--blue); }
+        .history-item-header {
+            display: flex; justify-content: space-between;
+            font-size: 11px; color: var(--text-muted); margin-bottom: 4px;
+        }
+        .history-item-type { padding: 1px 6px; border-radius: 8px; font-size: 10px; font-weight: 600; }
+        .type-grammar { background: #e8f4fc; color: #2980b9; }
+        .type-rewrite { background: #f0e6ff; color: #8e44ad; }
+        .type-tone { background: #fef3cd; color: #d68910; }
+        .type-translate { background: #d4edda; color: #155724; }
+        .type-rephrase { background: #fde8f0; color: #c0392b; }
+        .history-item-text { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        .history-actions { display: flex; gap: 6px; margin-bottom: 8px; }
+        .history-clear, .history-export {
+            padding: 4px 10px; border-radius: 4px;
+            font-size: 11px; cursor: pointer; border: 1px solid var(--border);
+            background: var(--bg-card); color: var(--text-muted);
+        }
+        .history-clear:hover { border-color: var(--red); color: var(--red); }
+        .history-export:hover { border-color: var(--blue); color: var(--blue); }
+        .history-empty { text-align: center; color: var(--text-muted); padding: 16px; font-size: 12px; }
+
+        /* --- Sparkline chart --- */
+        .chart-section {
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .chart-title {
+            font-size: 11px; font-weight: 600; color: var(--text-muted);
+            margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        #sparklineCanvas { width: 100%; height: 48px; display: block; }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="mode-bar">
+        <button class="mode-btn active" data-mode="grammar">Grammar</button>
+        <button class="mode-btn" data-mode="rewrite">Rewrite</button>
+        <button class="mode-btn" data-mode="rephrase">Rephrase</button>
+        <button class="mode-btn" data-mode="tone">Tone</button>
+        <button class="mode-btn" data-mode="translate">Translate</button>
+    </div>
+
+    <!-- Session stats strip -->
+    <div class="session-strip">
+        <div class="session-stat">🔍 Checks: <strong id="sessChecks">0</strong></div>
+        <div class="session-stat">❌ Found: <strong id="sessErrors">0</strong></div>
+        <div class="session-stat">✅ Fixed: <strong id="sessFixed">0</strong></div>
+    </div>
+
+    <div class="main">
+        <textarea id="textInput" placeholder="Type, paste, or scan page text..."></textarea>
+
+        <div class="stats-bar" id="statsBar">
+            <span class="stat" id="statWords">0 words</span>
+            <span class="stat">&middot;</span>
+            <span class="stat" id="statSentences">0 sentences</span>
+            <span class="stat">&middot;</span>
+            <span class="stat" id="statReadTime">~0 min</span>
+            <span class="readability" id="statReadability" style="display:none;"></span>
+        </div>
+
+        <!-- Grammar options (empty, no extra options) -->
+        <div id="optGrammar" class="mode-options"></div>
+
+        <!-- Rewrite options -->
+        <div id="optRewrite" class="mode-options hidden">
+            <div class="options-row">
+                <label>Style:</label>
+                <select id="rewriteStyle">
+                    <option value="formal">Formal</option>
+                    <option value="casual">Casual</option>
+                    <option value="concise">Concise</option>
+                    <option value="friendly">Friendly</option>
+                    <option value="academic">Academic</option>
+                    <option value="simple">Simple</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Rephrase options (no extra options needed) -->
+        <div id="optRephrase" class="mode-options hidden"></div>
+
+        <!-- Tone options -->
+        <div id="optTone" class="mode-options hidden"></div>
+
+        <!-- Translate options -->
+        <div id="optTranslate" class="mode-options hidden">
+            <div class="options-row">
+                <label>From:</label>
+                <select id="translateFrom">
+                    <option value="auto">Auto-detect</option>
+                    <option value="English">English</option>
+                    <option value="Vietnamese">Tiếng Việt</option>
+                    <option value="Spanish">Español</option>
+                    <option value="French">Français</option>
+                    <option value="German">Deutsch</option>
+                    <option value="Japanese">日本語</option>
+                    <option value="Korean">한국어</option>
+                    <option value="Chinese">中文</option>
+                    <option value="Thai">ภาษาไทย</option>
+                    <option value="Indonesian">Bahasa Indonesia</option>
+                    <option value="Russian">Русский</option>
+                    <option value="Portuguese">Português</option>
+                </select>
+            </div>
+            <div class="options-row">
+                <label>To:</label>
+                <select id="translateTo">
+                    <option value="English">English</option>
+                    <option value="Vietnamese">Tiếng Việt</option>
+                    <option value="Spanish">Español</option>
+                    <option value="French">Français</option>
+                    <option value="German">Deutsch</option>
+                    <option value="Japanese">日本語</option>
+                    <option value="Korean">한국어</option>
+                    <option value="Chinese">中文</option>
+                    <option value="Thai">ภาษาไทย</option>
+                    <option value="Indonesian">Bahasa Indonesia</option>
+                    <option value="Russian">Русский</option>
+                    <option value="Portuguese">Português</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="btn-row">
+            <button id="actionBtn" class="action-btn btn-primary">Check Grammar</button>
+            <button id="scanBtn" class="action-btn btn-secondary">Scan Page</button>
+        </div>
+
+        <div id="results" class="results"></div>
+
+        <!-- History -->
+        <div class="history-section">
+            <div class="history-header" id="historyToggle">
+                <h3>History <span id="historyCount"></span></h3>
+                <span class="history-toggle" id="historyArrow">&#9660;</span>
+            </div>
+            <div id="historyContent" class="hidden">
+                <div id="historyList" class="history-list"></div>
+                <!-- Sparkline chart -->
+                <div class="chart-section" id="chartSection" style="display:none;">
+                    <div class="chart-title">Errors Found — Last 7 Days</div>
+                    <canvas id="sparklineCanvas" height="48"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="sidepanel.js"></script>
+</body>
+</html>

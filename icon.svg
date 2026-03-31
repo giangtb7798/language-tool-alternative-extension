@@ -1,0 +1,5 @@
+<!-- Simple SVG icon placeholder -->
+<svg width="128" height="128" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" fill="#3498db"/>
+  <text x="64" y="80" font-size="60" text-anchor="middle" fill="white" font-family="Arial">Aa</text>
+</svg>

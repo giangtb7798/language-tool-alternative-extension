@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Grammar Checker</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            width: 340px;
+            padding: 16px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #f5f7fa;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .header h1 { font-size: 15px; color: #2c3e50; }
+        .mini-switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+        .mini-switch input { opacity: 0; width: 0; height: 0; }
+        .mini-slider {
+            position: absolute; inset: 0;
+            background: #ccc; border-radius: 20px;
+            cursor: pointer; transition: 0.3s;
+        }
+        .mini-slider:before {
+            content: "";
+            position: absolute; width: 14px; height: 14px;
+            left: 3px; bottom: 3px;
+            background: white; border-radius: 50%;
+            transition: 0.3s;
+        }
+        .mini-switch input:checked + .mini-slider { background: #3498db; }
+        .mini-switch input:checked + .mini-slider:before { transform: translateX(16px); }
+        textarea {
+            width: 100%;
+            height: 90px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            resize: vertical;
+            font-size: 13px;
+            font-family: inherit;
+            line-height: 1.4;
+        }
+        textarea:focus { outline: none; border-color: #3498db; }
+        .btn-row { display: flex; gap: 6px; margin-top: 8px; }
+        .check-btn {
+            flex: 1;
+            padding: 10px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .check-btn:hover { background: #2980b9; }
+        .check-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+        .scan-btn {
+            padding: 10px;
+            background: #ecf0f1;
+            color: #555;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .scan-btn:hover { background: #dfe6e9; }
+        .scan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .results { margin-top: 12px; display: none; }
+        .result-card {
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .result-success { background: #f0fdf4; color: #15803d; text-align: center; font-weight: 500; }
+        .result-error-item { background: #f8f9fa; border-left: 3px solid #e74c3c; padding-left: 12px; }
+        .result-error-msg { background: #fef2f2; color: #c0392b; }
+        .result-raw { background: #f8f9fa; white-space: pre-wrap; }
+        .result-loading { background: #f0f2f5; color: #666; text-align: center; }
+        .error-line { margin-bottom: 2px; }
+        .error-line.wrong { color: #e74c3c; }
+        .error-line.correct { color: #27ae60; }
+        .error-line.reason { color: #666; font-style: italic; font-size: 12px; }
+        .footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+            font-size: 11px;
+        }
+        .footer a {
+            color: #888;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .footer a:hover { color: #3498db; }
+        .footer .shortcut { color: #aaa; font-family: monospace; }
+        .panel-link {
+            display: block;
+            text-align: center;
+            margin-top: 8px;
+            padding: 8px;
+            background: #f0f2f5;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #555;
+            cursor: pointer;
+            border: 1px solid #e0e0e0;
+            transition: all 0.2s;
+        }
+        .panel-link:hover { border-color: #3498db; color: #3498db; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Grammar Checker</h1>
+        <label class="mini-switch" title="Auto-check on/off">
+            <input type="checkbox" id="autoToggle">
+            <span class="mini-slider"></span>
+        </label>
+    </div>
+
+    <textarea id="textInput" placeholder="Enter or paste text to check..."></textarea>
+
+    <div class="btn-row">
+        <button id="checkBtn" class="check-btn">Check Grammar</button>
+        <button id="scanBtn" class="scan-btn" title="Fill with page text">Scan</button>
+    </div>
+
+    <div id="results" class="results"></div>
+
+    <div id="openPanel" class="panel-link">Open Full Panel — Rewrite, Tone, Translate, Stats</div>
+
+    <div class="footer">
+        <a id="optionsLink">Settings</a>
+        <span class="shortcut">Ctrl+Shift+G</span>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
