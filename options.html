@@ -176,6 +176,27 @@
                 <span class="slider"></span>
             </label>
         </div>
+        <div class="toggle-row">
+            <div>
+                <label>Manual-only checking</label>
+                <div class="toggle-hint">Disable typing checks; keep selection, popup, and shortcuts.</div>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="manualOnly">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <label for="goalPreset">Default writing goal</label>
+        <select id="goalPreset">
+            <option value="">Auto / Website context</option>
+            <option value="email">Email</option>
+            <option value="casual">Casual</option>
+            <option value="business">Business</option>
+            <option value="academic">Academic</option>
+            <option value="creative">Creative</option>
+        </select>
+        <label for="rateLimitPerMin">LLM cost guard (requests/minute)</label>
+        <input type="number" id="rateLimitPerMin" min="1" max="120" value="20" step="1">
         <label for="checkInterval">Check delay (seconds)</label>
         <input type="number" id="checkInterval" min="1" max="30" value="3" step="1">
         <label for="language">Language</label>
@@ -183,6 +204,21 @@
             <option value="auto">Auto-detect</option>
             <option value="English" selected>English</option>
             <option value="Vietnamese">Tiếng Việt</option>
+            <option value="Spanish">Español</option>
+            <option value="French">Français</option>
+            <option value="German">Deutsch</option>
+            <option value="Japanese">日本語</option>
+            <option value="Korean">한국어</option>
+            <option value="Chinese">中文</option>
+            <option value="Portuguese">Português</option>
+            <option value="Russian">Русский</option>
+            <option value="Indonesian">Bahasa Indonesia</option>
+            <option value="Thai">ภาษาไทย</option>
+        </select>
+        <label for="defaultTargetLanguage">Default translation language</label>
+        <select id="defaultTargetLanguage">
+            <option value="Vietnamese">Tiếng Việt</option>
+            <option value="English">English</option>
             <option value="Spanish">Español</option>
             <option value="French">Français</option>
             <option value="German">Deutsch</option>

@@ -156,6 +156,8 @@
         .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-primary { background: var(--blue); color: white; }
         .btn-secondary { background: var(--bg-alt); color: var(--text-muted); }
+        .btn-read { background: var(--purple); color: white; flex: 0 0 auto; padding-left: 12px; padding-right: 12px; }
+        .btn-read.gc-speaking { background: #7d3c98; }
 
         /* --- Results --- */
         .results { display: none; }
@@ -197,6 +199,9 @@
         .error-line.wrong { color: var(--red); }
         .error-line.correct { color: var(--green); }
         .error-line.reason { color: var(--text-muted); font-style: italic; font-size: 12px; }
+        .error-why { margin-top: 6px; color: var(--text-muted); font-size: 12px; }
+        .error-why summary { cursor: pointer; color: var(--blue); font-weight: 700; }
+        .error-why div { margin-top: 4px; font-style: italic; }
 
         /* Stream/typing effect */
         .result-stream { white-space: pre-wrap; background: var(--bg-alt); padding: 10px; border-radius: 8px; color: var(--text); }
@@ -233,6 +238,22 @@
         .translate-heading {
             font-size: 11px; font-weight: 700; text-transform: uppercase;
             letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 6px;
+        }
+
+        /* Learning mode sections */
+        .learning-examples-section {
+            background: rgba(52, 152, 219, 0.08);
+            border-left: 3px solid var(--blue);
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 4px;
+        }
+        .learning-vocab-section {
+            background: rgba(142, 68, 173, 0.08);
+            border-left: 3px solid var(--purple);
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 4px;
         }
 
         /* --- History --- */
@@ -296,6 +317,14 @@
             margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;
         }
         #sparklineCanvas { width: 100%; height: 48px; display: block; }
+
+
+        .analytics-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:6px; margin-bottom:8px; }
+        .analytics-card { background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:8px; }
+        .analytics-label { font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; }
+        .analytics-value { font-size:16px; font-weight:700; color:var(--blue); }
+        .mistake-row { display:flex; justify-content:space-between; gap:8px; font-size:12px; padding:5px 0; border-bottom:1px solid var(--border); color:var(--text); }
+        .mistake-row:last-child { border-bottom:none; }
 
         .hidden { display: none !important; }
     </style>
@@ -389,10 +418,17 @@
                     <option value="Portuguese">Português</option>
                 </select>
             </div>
+            <div class="options-row">
+                <label style="display:flex;align-items:center;gap:8px;">
+                    <input type="checkbox" id="learningMode" style="width:18px;height:18px;cursor:pointer;">
+                    <span title="Show business examples + vocabulary insights for English learners">📚 Learning Mode</span>
+                </label>
+            </div>
         </div>
 
         <div class="btn-row">
             <button id="actionBtn" class="action-btn btn-primary">Check Grammar</button>
+            <button id="readBtn" class="action-btn btn-read" title="Read text aloud">🔊 Read</button>
             <button id="scanBtn" class="action-btn btn-secondary">Scan Page</button>
         </div>
 
@@ -408,13 +444,21 @@
                 <div id="historyList" class="history-list"></div>
                 <!-- Sparkline chart -->
                 <div class="chart-section" id="chartSection" style="display:none;">
-                    <div class="chart-title">Errors Found — Last 7 Days</div>
+                    <div class="chart-title">Errors Found - Last 7 Days</div>
                     <canvas id="sparklineCanvas" height="48"></canvas>
                 </div>
+
+        <div class="chart-section" id="analyticsSection" style="display:none;">
+            <div class="chart-title">Personal Error Analytics</div>
+            <div class="analytics-grid" id="analyticsGrid"></div>
+            <div id="mistakeList"></div>
+        </div>
             </div>
         </div>
     </div>
 
+    <script src="lib/grammar-core.js"></script>
+    <script src="speak.js"></script>
     <script src="sidepanel.js"></script>
 </body>
 </html>

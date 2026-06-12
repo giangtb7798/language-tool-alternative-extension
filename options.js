@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', function() {
         autoCheck: document.getElementById('autoCheck'),
         checkInterval: document.getElementById('checkInterval'),
         language: document.getElementById('language'),
+        defaultTargetLanguage: document.getElementById('defaultTargetLanguage'),
         saveBtn: document.getElementById('saveBtn'),
         testBtn: document.getElementById('testBtn'),
         status: document.getElementById('status'),
@@ -23,7 +24,10 @@ document.addEventListener('DOMContentLoaded', function() {
         dictList: document.getElementById('dictList'),
         dictHint: document.getElementById('dictHint'),
         clearHistoryBtn: document.getElementById('clearHistoryBtn'),
-        historyInfo: document.getElementById('historyInfo')
+        historyInfo: document.getElementById('historyInfo'),
+        manualOnly: document.getElementById('manualOnly'),
+        goalPreset: document.getElementById('goalPreset'),
+        rateLimitPerMin: document.getElementById('rateLimitPerMin')
     };
 
     const languagetoolSettings = document.getElementById('languagetoolSettings');
@@ -67,7 +71,8 @@ document.addEventListener('DOMContentLoaded', function() {
         'apiType', 'hybridLlmType', 'openaiApiKey', 'openaiModel',
         'localUrl', 'localModel', 'localApiKey',
         'autoCheck', 'checkInterval', 'language',
-        'domainMode', 'domainList', 'customDictionary', 'clipboardMonitor'
+        'defaultTargetLanguage', 'domainMode', 'domainList', 'customDictionary', 'clipboardMonitor',
+        'checkMode', 'goalPreset', 'rateLimitPerMin'
     ], (result) => {
         if (result.apiType) els.apiType.value = result.apiType;
         if (result.hybridLlmType) hybridLlmType.value = result.hybridLlmType;
@@ -78,8 +83,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (result.localModel) els.localModel.value = result.localModel;
         els.autoCheck.checked = result.autoCheck !== false;
         document.getElementById('clipboardMonitor').checked = result.clipboardMonitor === true;
+        els.manualOnly.checked = result.checkMode === 'manual';
         els.checkInterval.value = result.checkInterval || 3;
+        els.rateLimitPerMin.value = result.rateLimitPerMin || 20;
+        if (result.goalPreset !== undefined) els.goalPreset.value = result.goalPreset || '';
         if (result.language) els.language.value = result.language;
+        if (result.defaultTargetLanguage) els.defaultTargetLanguage.value = result.defaultTargetLanguage;
 
         updateProviderUI();
 
@@ -93,14 +102,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // --- Save settings ---
 
-    els.saveBtn.addEventListener('click', () => {
+    els.saveBtn.addEventListener('click', async () => {
         const type = els.apiType.value;
         const data = {
             apiType: type,
             autoCheck: els.autoCheck.checked,
             clipboardMonitor: document.getElementById('clipboardMonitor').checked,
+            checkMode: els.manualOnly.checked ? 'manual' : 'auto',
+            goalPreset: els.goalPreset.value || '',
+            rateLimitPerMin: parseInt(els.rateLimitPerMin.value) || 20,
             checkInterval: parseInt(els.checkInterval.value) || 3,
-            language: els.language.value
+            language: els.language.value,
+            defaultTargetLanguage: els.defaultTargetLanguage.value || 'Vietnamese'
         };
 
         const llmType = type === 'hybrid' ? hybridLlmType.value : type;
@@ -116,6 +129,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const model = els.localModel.value.trim();
             if (!url) return showStatus('Please enter an API endpoint URL.', 'error');
             if (!model) return showStatus('Please enter a model name.', 'error');
+            const granted = await requestHostPermission(url);
+            if (!granted) return showStatus('Permission denied for API host.', 'error');
             data.localUrl = url;
             data.localModel = model;
             data.localApiKey = els.localApiKey.value.trim();
@@ -142,6 +157,11 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         try {
+            const llmType = settings.apiType === 'hybrid' ? settings.hybridLlmType : settings.apiType;
+            if (llmType === 'local') {
+                const granted = await requestHostPermission(settings.localUrl);
+                if (!granted) throw new Error('Permission denied for API host');
+            }
             const response = await chrome.runtime.sendMessage({ action: 'testConnection', settings });
             showStatus(
                 response.success ? response.result : 'Failed: ' + response.error,
@@ -255,6 +275,19 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // --- Utilities ---
+
+    async function requestHostPermission(rawUrl) {
+        try {
+            const u = new URL(rawUrl);
+            if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return true;
+            const origin = `${u.protocol}//${u.host}/*`;
+            const has = await chrome.permissions.contains({ origins: [origin] });
+            if (has) return true;
+            return await chrome.permissions.request({ origins: [origin] });
+        } catch (_) {
+            return false;
+        }
+    }
 
     function showStatus(message, type) {
         els.status.textContent = message;

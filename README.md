@@ -13,6 +13,7 @@ A Chrome extension that checks grammar, rewrites text, detects tone, and transla
 - "Fix All" button to apply corrections directly
 - Custom dictionary — words you add won't be flagged
 - Context-aware feedback (adjusts for email, social media, etc.)
+- Correction explanations with a "Why this fix?" note for each issue
 
 ### Rewrite Mode
 - Rewrite text in different styles: Formal, Casual, Concise, Friendly, Academic, Simple

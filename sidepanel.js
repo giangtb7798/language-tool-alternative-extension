@@ -3,6 +3,7 @@
 (function() {
     const textInput = document.getElementById('textInput');
     const actionBtn = document.getElementById('actionBtn');
+    const readBtn = document.getElementById('readBtn');
     const scanBtn = document.getElementById('scanBtn');
     const resultsDiv = document.getElementById('results');
     const modeButtons = document.querySelectorAll('.mode-btn');
@@ -272,6 +273,7 @@
                         text,
                         sourceLang: document.getElementById('translateFrom').value,
                         targetLang: document.getElementById('translateTo').value,
+                        learningMode: document.getElementById('learningMode')?.checked || false,
                         settings
                     });
                     if (response.success) {
@@ -292,6 +294,23 @@
             actionBtn.disabled = false;
             actionBtn.textContent = MODE_LABELS[currentMode];
         }
+    });
+
+    // --- Read aloud ---
+
+    readBtn.addEventListener('click', async () => {
+        const text = textInput.value.trim();
+        if (!text) {
+            showMessage('Enter some text to read.', 'error');
+            return;
+        }
+        const settings = await chrome.storage.sync.get(['language', 'speakRate']);
+        const result = GCSpeak.speak(text, {
+            language: settings.language,
+            rate: settings.speakRate,
+            button: readBtn
+        });
+        if (!result.ok) showMessage(result.error, 'error');
     });
 
     // --- Scan page ---
@@ -326,31 +345,21 @@
         resultsDiv.style.display = 'block';
         resultsDiv.innerHTML = '';
 
-        // Strip detected lang line if present
-        const cleanResult = result.replace(/\[DETECTED_LANG:[^\]]+\]\n?/, '');
+        const parsed = GrammarCore.parseGrammarResult(result, dictionary);
 
-        const isClean = cleanResult.toLowerCase().includes('no error') || cleanResult.includes('✓');
-        let matches = Array.from(cleanResult.matchAll(/❌\s*"([^"]+)"\s*→\s*✅\s*"([^"]+)"/g));
-        const reasons = Array.from(cleanResult.matchAll(/Reason:\s*(.+)/gi));
-
-        if (dictionary && dictionary.length > 0) {
-            const dictLower = dictionary.map(w => w.toLowerCase());
-            matches = matches.filter(m => !dictLower.includes(m[1].toLowerCase()));
-        }
-
-        if ((isClean && matches.length === 0) || matches.length === 0) {
-            resultsDiv.innerHTML = '<div class="result-card result-success">✓ No grammar errors found!</div>';
+        if (parsed.isClean && parsed.errors.length === 0) {
+            resultsDiv.innerHTML = '<div class="result-card result-success">\u2713 No grammar errors found!</div>';
             return;
         }
 
-        matches.forEach((m, i) => {
+        parsed.errors.forEach((error) => {
             const card = document.createElement('div');
             card.className = 'result-card result-error-item';
             let html = `
-                <div class="error-line wrong">❌ "${escapeHTML(m[1])}"</div>
-                <div class="error-line correct">✅ "${escapeHTML(m[2])}"</div>
+                <div class="error-line wrong">\u274C "${escapeHTML(error.incorrect)}"</div>
+                <div class="error-line correct">\u2705 "${escapeHTML(error.correct)}"</div>
             `;
-            if (reasons[i]) html += `<div class="error-line reason">${escapeHTML(reasons[i][1])}</div>`;
+            if (error.reason) html += `<details class="error-why" open><summary>Why this fix?</summary><div>${escapeHTML(error.reason)}</div></details>`;
             card.innerHTML = html;
             resultsDiv.appendChild(card);
         });
@@ -490,7 +499,9 @@
         resultsDiv.innerHTML = '';
 
         const translationMatch = result.match(/---\s*Translation\s*---\s*([\s\S]*?)(?=---\s*Grammar|$)/i);
-        const grammarMatch = result.match(/---\s*Grammar\s*Check\s*---\s*([\s\S]*)/i);
+        const grammarMatch = result.match(/---\s*Grammar\s*Check\s*---\s*([\s\S]*?)(?=---\s*Learning|$)/i);
+        const learningMatch = result.match(/---\s*Learning\s*Examples\s*---\s*([\s\S]*?)(?=---\s*Vocabulary|$)/i);
+        const vocabMatch = result.match(/---\s*Vocabulary\s*---\s*([\s\S]*)/i);
 
         const card = document.createElement('div');
         card.className = 'result-card result-translate';
@@ -510,6 +521,22 @@
             html += `<div class="translate-section">
                 <div class="translate-heading">Grammar Check</div>
                 <div style="white-space:pre-wrap;color:var(--text);">${escapeHTML(grammar)}</div>
+            </div>`;
+        }
+
+        if (learningMatch) {
+            const examples = learningMatch[1].trim();
+            html += `<div class="translate-section learning-examples-section">
+                <div class="translate-heading" style="color:var(--blue);">📚 Learning Examples</div>
+                <div style="white-space:pre-wrap;color:var(--text);font-size:12px;line-height:1.6;">${escapeHTML(examples)}</div>
+            </div>`;
+        }
+
+        if (vocabMatch) {
+            const vocab = vocabMatch[1].trim();
+            html += `<div class="translate-section learning-vocab-section">
+                <div class="translate-heading" style="color:var(--purple);">📖 Vocabulary & Etymology</div>
+                <div style="white-space:pre-wrap;color:var(--text);font-size:11px;line-height:1.5;">${escapeHTML(vocab)}</div>
             </div>`;
         }
 
@@ -602,8 +629,33 @@
             historyList.appendChild(el);
         });
 
-        // Render sparkline after list
+        // Render charts after list
         renderSparkline(history);
+        renderAnalytics();
+    }
+
+    async function renderAnalytics() {
+        const section = document.getElementById('analyticsSection');
+        const grid = document.getElementById('analyticsGrid');
+        const list = document.getElementById('mistakeList');
+        if (!section || !grid || !list) return;
+        const response = await chrome.runtime.sendMessage({ action: 'getAnalytics' });
+        const data = response?.analytics || { byType: {}, topMistakes: {}, total: 0 };
+        section.style.display = data.total > 0 ? 'block' : 'none';
+        if (data.total <= 0) return;
+
+        const types = Object.entries(data.byType).sort((a, b) => b[1] - a[1]).slice(0, 4);
+        grid.innerHTML = types.map(([type, count]) => `
+            <div class="analytics-card">
+                <div class="analytics-label">${escapeHTML(type)}</div>
+                <div class="analytics-value">${count}</div>
+            </div>
+        `).join('');
+
+        const top = Object.entries(data.topMistakes).sort((a, b) => b[1] - a[1]).slice(0, 6);
+        list.innerHTML = top.length
+            ? top.map(([mistake, count]) => `<div class="mistake-row"><span>${escapeHTML(mistake)}</span><strong>${count}</strong></div>`).join('')
+            : '<div class="history-empty">No repeated mistakes yet</div>';
     }
 
     // --- Export history ---

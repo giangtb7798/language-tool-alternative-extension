@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Grammar Checker Alternative",
-  "version": "8.0.0",
+  "version": "9.0.0",
   "description": "Grammar checker, rewriter, tone detector & translator using OpenAI or any OpenAI-compatible LLM",
   "permissions": [
     "activeTab",
@@ -12,9 +12,17 @@
     "nativeMessaging"
   ],
   "host_permissions": [
-    "https://*/*",
+    "https://api.openai.com/*",
+    "https://api.languagetool.org/*",
+    "https://api.groq.com/*",
+    "https://openrouter.ai/*",
+    "https://api.together.xyz/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -46,7 +54,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["lib/grammar-core.js", "content.js"],
       "run_at": "document_end",
       "all_frames": true
     }

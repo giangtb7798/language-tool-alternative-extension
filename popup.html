@@ -74,6 +74,20 @@
         }
         .scan-btn:hover { background: #dfe6e9; }
         .scan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .read-btn {
+            padding: 10px;
+            background: #9b59b6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .read-btn:hover { background: #8e44ad; }
+        .read-btn.gc-speaking { background: #7d3c98; }
+        .read-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .results { margin-top: 12px; display: none; }
         .result-card {
             padding: 10px;
@@ -87,10 +101,16 @@
         .result-error-msg { background: #fef2f2; color: #c0392b; }
         .result-raw { background: #f8f9fa; white-space: pre-wrap; }
         .result-loading { background: #f0f2f5; color: #666; text-align: center; }
+        .result-stream { background:#f8f9fa; white-space:pre-wrap; }
+        .stream-cursor { display:inline-block;width:2px;height:14px;background:#3498db;animation:blink .7s infinite;vertical-align:middle;margin-left:1px; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
         .error-line { margin-bottom: 2px; }
         .error-line.wrong { color: #e74c3c; }
         .error-line.correct { color: #27ae60; }
         .error-line.reason { color: #666; font-style: italic; font-size: 12px; }
+        .error-why { margin-top: 6px; color: #666; font-size: 12px; }
+        .error-why summary { cursor: pointer; color: #3498db; font-weight: 700; }
+        .error-why div { margin-top: 4px; font-style: italic; }
         .footer {
             display: flex;
             justify-content: space-between;
@@ -134,6 +154,7 @@
 
     <div class="btn-row">
         <button id="checkBtn" class="check-btn">Check Grammar</button>
+        <button id="readBtn" class="read-btn" title="Read text aloud">🔊 Read</button>
         <button id="scanBtn" class="scan-btn" title="Fill with page text">Scan</button>
     </div>
 
@@ -146,6 +167,8 @@
         <span class="shortcut">Ctrl+Shift+G</span>
     </div>
 
+    <script src="lib/grammar-core.js"></script>
+    <script src="speak.js"></script>
     <script src="popup.js"></script>
 </body>
 </html>

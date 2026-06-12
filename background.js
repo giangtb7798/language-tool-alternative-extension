@@ -1,8 +1,12 @@
-// Background service worker v8.0.0
+// Background service worker v9.0.0
+
+importScripts('lib/grammar-core.js');
+const GC = self.GrammarCore;
 
 const SETTINGS_KEYS = [
     'apiType', 'hybridLlmType', 'openaiApiKey', 'openaiModel',
-    'localUrl', 'localModel', 'localApiKey', 'language'
+    'localUrl', 'localModel', 'localApiKey', 'language',
+    'goalPreset', 'checkMode', 'rateLimitPerMin'
 ];
 
 const MAX_HISTORY = 200;
@@ -44,9 +48,12 @@ const LANG_DISPLAY = {
 };
 
 // --- Result cache (avoids re-checking identical text) ---
+// Backed by chrome.storage.session so it survives service-worker restarts
+// (MV3 tears the worker down after ~30s idle). Kept mirrored in memory for speed.
 const grammarCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 const CACHE_MAX_SIZE = 200;
+let cacheHydrated = false;
 
 function hashText(text) {
     let h1 = 0, h2 = 0x5a827999;
@@ -55,6 +62,23 @@ function hashText(text) {
         h2 = ((h2 << 5) + h2) ^ text.charCodeAt(text.length - 1 - i); h2 |= 0;
     }
     return h1.toString(36) + '_' + h2.toString(36) + '_' + text.length;
+}
+
+async function hydrateCache() {
+    if (cacheHydrated) return;
+    cacheHydrated = true;
+    try {
+        const { grammarCache: stored } = await chrome.storage.session.get('grammarCache');
+        if (stored && typeof stored === 'object') {
+            for (const [k, v] of Object.entries(stored)) grammarCache.set(k, v);
+        }
+    } catch (_) {}
+}
+
+function persistCache() {
+    try {
+        chrome.storage.session.set({ grammarCache: Object.fromEntries(grammarCache) });
+    } catch (_) {}
 }
 
 function getCached(text, apiType) {
@@ -74,6 +98,7 @@ function setCache(text, apiType, result) {
         if (oldestKey) grammarCache.delete(oldestKey);
     }
     grammarCache.set(apiType + ':' + hashText(text), { result, time: Date.now() });
+    persistCache();
 }
 
 const DOMAIN_CONTEXTS = {
@@ -92,13 +117,42 @@ const DOMAIN_CONTEXTS = {
     'reddit.com': 'online forum discussion',
 };
 
-// --- Session statistics (in-memory, reset on service worker restart) ---
+// --- Session statistics (persisted to storage.session so they survive SW restarts) ---
 let sessionStats = {
     checksRun: 0,
     errorsFound: 0,
     errorsFixed: 0,
     startTime: Date.now()
 };
+let statsHydrated = false;
+
+async function hydrateStats() {
+    if (statsHydrated) return;
+    statsHydrated = true;
+    try {
+        const { sessionStats: stored } = await chrome.storage.session.get('sessionStats');
+        if (stored && typeof stored === 'object') sessionStats = { ...sessionStats, ...stored };
+    } catch (_) {}
+}
+
+function persistStats() {
+    try { chrome.storage.session.set({ sessionStats }); } catch (_) {}
+}
+
+// --- Rate limiter (cost guard) ---
+// Sliding 60s window of LLM call timestamps. Default 20/min, configurable.
+let llmCallTimestamps = [];
+function checkRateLimit(limitPerMin) {
+    const limit = limitPerMin || 20;
+    const now = Date.now();
+    llmCallTimestamps = llmCallTimestamps.filter(t => now - t < 60000);
+    if (llmCallTimestamps.length >= limit) {
+        const oldest = llmCallTimestamps[0];
+        const waitS = Math.ceil((60000 - (now - oldest)) / 1000);
+        throw new Error(`Rate limit reached (${limit}/min). Try again in ${waitS}s or raise the limit in Settings.`);
+    }
+    llmCallTimestamps.push(now);
+}
 
 // --- Setup ---
 
@@ -106,6 +160,11 @@ chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({
         id: 'checkGrammar',
         title: 'Check Grammar',
+        contexts: ['selection']
+    });
+    chrome.contextMenus.create({
+        id: 'readAloud',
+        title: 'Read aloud',
         contexts: ['selection']
     });
 });
@@ -136,7 +195,19 @@ chrome.commands.onCommand.addListener(async (command) => {
 // --- Context menu ---
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-    if (info.menuItemId !== 'checkGrammar' || !info.selectionText) return;
+    if (!info.selectionText || !tab?.id) return;
+
+    if (info.menuItemId === 'readAloud') {
+        try {
+            await chrome.tabs.sendMessage(tab.id, {
+                action: 'readAloud',
+                text: info.selectionText
+            });
+        } catch (_) {}
+        return;
+    }
+
+    if (info.menuItemId !== 'checkGrammar') return;
 
     try {
         const settings = await chrome.storage.sync.get(SETTINGS_KEYS);
@@ -171,7 +242,7 @@ chrome.runtime.onConnect.addListener((port) => {
             if (req.action === 'streamRephrase') {
                 systemPrompt = buildRephrasePrompt();
             } else {
-                systemPrompt = buildGrammarPrompt(settings.language, req.domain);
+                systemPrompt = buildGrammarPrompt(settings.language, req.domain, settings.goalPreset);
             }
 
             if (apiType === 'languagetool' && req.action !== 'streamRephrase') {
@@ -229,7 +300,17 @@ const MESSAGE_HANDLERS = {
         return { success: true, result };
     },
     async translateText(req) {
-        const result = await callLLM(req.text, req.settings, buildTranslatePrompt(req.sourceLang, req.targetLang));
+        let maxTokens = computeTranslateMaxTokens(req.text);
+        let prompt;
+        // Use learning prompt if learning mode is enabled
+        if (req.learningMode) {
+            prompt = buildTranslateLearningPrompt(req.sourceLang, req.targetLang, req.context, req.pageTitle);
+            // Increase token budget for learning mode (includes examples + vocabulary)
+            maxTokens = Math.min(Math.max(2500, maxTokens * 1.5), 6000);
+        } else {
+            prompt = buildTranslatePrompt(req.sourceLang, req.targetLang, req.context, req.pageTitle);
+        }
+        const result = await callLLM(req.text, req.settings, prompt, maxTokens);
         return { success: true, result };
     },
     async rephraseText(req) {
@@ -246,6 +327,10 @@ const MESSAGE_HANDLERS = {
                 'com.openclaw.englishteacher', 
                 { action: 'logMistake', incorrect: req.incorrect, correct: req.correct }
             );
+        } catch (_) {}
+        // Also feed the in-extension analytics dashboard.
+        try {
+            await recordMistakes([{ incorrect: req.incorrect, correct: req.correct, reason: req.reason }]);
         } catch (_) {}
         return { success: true };
     },
@@ -271,32 +356,102 @@ const MESSAGE_HANDLERS = {
         return { success: true };
     },
     async getSessionStats() {
+        await hydrateStats();
         return { success: true, stats: sessionStats };
     },
     async incrementStat(req) {
+        await hydrateStats();
         if (req.key && req.key in sessionStats) {
             sessionStats[req.key] += (req.amount || 1);
+            persistStats();
         }
         return { success: true, stats: sessionStats };
+    },
+    async getAnalytics() {
+        const data = await getAnalyticsData();
+        return { success: true, analytics: data };
+    },
+    async clearAnalytics() {
+        await chrome.storage.local.set({ errorAnalytics: { byType: {}, topMistakes: {}, total: 0 } });
+        return { success: true };
+    },
+    async getSynonyms(req) {
+        const result = await callLLM(req.text, req.settings, buildSynonymPrompt(req.word, req.context), 300);
+        return { success: true, result };
+    },
+    async explainWord(req) {
+        // Use a slightly larger max token count for the detailed explanation
+        const result = await callLLM(req.text, req.settings, buildExplainPrompt(req.targetLang), 800);
+        return { success: true, result };
     }
 };
 
-// --- Prompt builders ---
+// --- Error analytics (persisted to storage.local for the dashboard) ---
 
-function getContextHint(domain) {
-    if (!domain) return '';
-    try {
-        const hostname = new URL(domain).hostname;
-        for (const [key, ctx] of Object.entries(DOMAIN_CONTEXTS)) {
-            if (hostname.includes(key)) {
-                return `\nContext: The user is writing ${ctx}. Adjust feedback accordingly.`;
-            }
-        }
-    } catch {}
-    return '';
+async function getAnalyticsData() {
+    const { errorAnalytics } = await chrome.storage.local.get('errorAnalytics');
+    return errorAnalytics || { byType: {}, topMistakes: {}, total: 0 };
 }
 
-function buildGrammarPrompt(language, domain) {
+function classifyError(incorrect, correct, reason) {
+    const r = (reason || '').toLowerCase();
+    if (/spell|typo|misspell/.test(r)) return 'spelling';
+    if (/capital|uppercase|lowercase/.test(r)) return 'capitalization';
+    if (/punctuation|comma|period|apostrophe|space/.test(r)) return 'punctuation';
+    if (/tense|verb|agreement|plural|article|preposition|grammar/.test(r)) return 'grammar';
+    if (incorrect && correct && incorrect.toLowerCase() === correct.toLowerCase()) return 'capitalization';
+    return 'other';
+}
+
+async function recordMistakes(edits) {
+    if (!edits || edits.length === 0) return;
+    const data = await getAnalyticsData();
+    for (const e of edits) {
+        const cat = classifyError(e.incorrect, e.correct, e.reason);
+        data.byType[cat] = (data.byType[cat] || 0) + 1;
+        const key = `${e.incorrect} → ${e.correct}`;
+        data.topMistakes[key] = (data.topMistakes[key] || 0) + 1;
+        data.total++;
+    }
+    // Cap topMistakes map size to avoid unbounded growth.
+    const entries = Object.entries(data.topMistakes);
+    if (entries.length > 200) {
+        entries.sort((a, b) => b[1] - a[1]);
+        data.topMistakes = Object.fromEntries(entries.slice(0, 200));
+    }
+    await chrome.storage.local.set({ errorAnalytics: data });
+}
+
+// --- Prompt builders ---
+
+const GOAL_PRESETS = {
+    email: 'The text is an email. Favor a clear, professional, courteous tone.',
+    casual: 'The text is casual/social. Keep it relaxed and natural; do not over-formalize.',
+    academic: 'The text is academic. Expect formal register, precise word choice, and full sentences.',
+    creative: 'The text is creative writing. Preserve voice and style; flag only clear errors.',
+    business: 'The text is business communication. Favor concise, confident, professional phrasing.'
+};
+
+function getContextHint(domain, goalPreset) {
+    let hint = '';
+    if (goalPreset && GOAL_PRESETS[goalPreset]) {
+        hint += `\nGoal: ${GOAL_PRESETS[goalPreset]}`;
+    }
+    if (domain) {
+        try {
+            const hostname = new URL(domain).hostname;
+            for (const [key, ctx] of Object.entries(DOMAIN_CONTEXTS)) {
+                if (hostname.includes(key)) {
+                    hint += `\nContext: The user is writing ${ctx}. Adjust feedback accordingly.`;
+                    break;
+                }
+            }
+        } catch {}
+    }
+    return hint;
+}
+
+function buildGrammarPrompt(language, domain, goalPreset) {
     const lang = language || 'English';
     const langLine = lang.toLowerCase() === 'auto'
         ? 'Detect the language and check accordingly.'
@@ -318,7 +473,7 @@ function buildGrammarPrompt(language, domain) {
         '- Be concise',
         '- Do NOT introduce yourself or add any commentary',
         '- Your entire response must be ONLY the error list OR "✓ No errors found."',
-        getContextHint(domain)
+        getContextHint(domain, goalPreset)
     ].join('\n');
 }
 
@@ -374,11 +529,31 @@ function buildTonePrompt() {
     ].join('\n');
 }
 
-function buildTranslatePrompt(sourceLang, targetLang) {
+function buildTranslatePrompt(sourceLang, targetLang, context, pageTitle) {
     const src = sourceLang === 'auto' ? 'the detected source language' : sourceLang;
+    const safeContext = GC.sanitizeContext(context, 450);
+    const safeTitle = GC.sanitizeContext(pageTitle, 150);
+
+    const contextBlock = [];
+    if (safeTitle) {
+        contextBlock.push(`Page topic: "${safeTitle}"`);
+    }
+    if (safeContext) {
+        contextBlock.push(`Surrounding context on the page:\n"${safeContext}"`);
+    }
+    const contextSection = contextBlock.length > 0
+        ? [
+            'IMPORTANT — Use the following context to resolve any ambiguous or polysemous words.',
+            'A single word can have many meanings; pick the one that fits the context.',
+            ...contextBlock,
+            ''
+          ].join('\n')
+        : '';
+
     return [
-        `Translate the following text from ${src} to ${targetLang}.`,
-        'Then check the translation for grammar errors.',
+        contextSection,
+        `Translate the TEXT TO TRANSLATE below from ${src} to ${targetLang}.`,
+        'Provide ONLY the translation. Do not repeat the original text.',
         '',
         'Respond in EXACTLY this format:',
         '',
@@ -390,95 +565,182 @@ function buildTranslatePrompt(sourceLang, targetLang) {
     ].join('\n');
 }
 
+function buildTranslateLearningPrompt(sourceLang, targetLang, context, pageTitle) {
+    const src = sourceLang === 'auto' ? 'the detected source language' : sourceLang;
+    const nativeLang = sourceLang && sourceLang !== 'auto' ? sourceLang : 'the user\'s native language';
+    const safeContext = GC.sanitizeContext(context, 450);
+    const safeTitle = GC.sanitizeContext(pageTitle, 150);
+
+    const contextBlock = [];
+    if (safeTitle) {
+        contextBlock.push(`Page topic: "${safeTitle}"`);
+    }
+    if (safeContext) {
+        contextBlock.push(`Surrounding context on the page:\n"${safeContext}"`);
+    }
+    const contextSection = contextBlock.length > 0
+        ? [
+            'IMPORTANT — Use the following context to resolve any ambiguous or polysemous words.',
+            'A single word can have many meanings; pick the one that fits the context.',
+            ...contextBlock,
+            ''
+          ].join('\n')
+        : '';
+
+    return [
+        contextSection,
+        `Translate from ${src} to ${targetLang}. The user is learning professional English.`,
+        '',
+        'Respond in EXACTLY this format with all 4 sections:',
+        '',
+        '--- Translation ---',
+        '[translated text here]',
+        '',
+        '--- Grammar Check ---',
+        '[Use ❌ "incorrect" → ✅ "correct" format for errors, or "✓ No errors found."]',
+        '',
+        '--- Learning Examples ---',
+        'Provide 3 professional/business usage examples demonstrating key phrases from the translation:',
+        '  1. [Example sentence 1 in English with business context]',
+        '     (' + nativeLang + ' translation: [translation of example 1])',
+        '  2. [Example sentence 2 in English with business context]',
+        '     (' + nativeLang + ' translation: [translation of example 2])',
+        '  3. [Example sentence 3 in English with business context]',
+        '     (' + nativeLang + ' translation: [translation of example 3])',
+        '',
+        '--- Vocabulary ---',
+        'Break down 3-5 key vocabulary words from the translation with etymology and synonyms:',
+        '  • Word: [word]',
+        '    Part of Speech: [noun/verb/adjective/etc]',
+        '    Definition: [concise English definition]',
+        '    ' + nativeLang + ': [translation]',
+        '    Etymology: [brief origin/root if applicable]',
+        '    Related Terms: [synonyms or related professional terms]'
+    ].join('\n');
+}
+
+function buildExplainPrompt(targetLang) {
+    const lang = targetLang || 'English';
+    return [
+        `You are an expert English language teacher. The user has selected a word or short phrase.`,
+        `Your task is to provide a comprehensive explanation to help the user learn and understand it.`,
+        ``,
+        `IMPORTANT: Provide the explanation in a bilingual format:`,
+        `- Core structural headings in English`,
+        `- English definitions followed by ${lang} translations in parentheses or alongside`,
+        `- Explanations and notes in ${lang} to ensure the user fully understands`,
+        ``,
+        `Respond EXACTLY in this format (use the exact emojis and headings):`,
+        ``,
+        `📖 Word: [The word/phrase]`,
+        `🔤 Pronunciation: [IPA pronunciation]`,
+        `📝 Part of Speech: [noun/verb/adjective/etc.]`,
+        `💡 Meaning: [Clear explanation in English and ${lang}]`,
+        ``,
+        `📌 Examples:`,
+        `  1. [Example sentence 1 in English]`,
+        `     ([Translation of example 1 in ${lang}])`,
+        `  2. [Example sentence 2 in English]`,
+        `     ([Translation of example 2 in ${lang}])`,
+        `  3. [Example sentence 3 in English]`,
+        `     ([Translation of example 3 in ${lang}])`,
+        ``,
+        `🎯 When to Use:`,
+        `  - [Bullet points explaining context, formality, and usage nuances in ${lang}]`,
+        ``,
+        `⚠️ Common Mistakes (Optional):`,
+        `  - [Common spelling, grammar, or usage mistakes related to this word, if any]`
+    ].join('\n');
+}
+
+function buildSynonymPrompt(word, context) {
+    const safeContext = GC.sanitizeContext(context, 200);
+    return [
+        `You are a thesaurus. Provide synonyms or better word choices for the word/phrase: "${word}".`,
+        safeContext ? `It appears in this context: "${safeContext}". Pick synonyms that fit this context.` : '',
+        '',
+        'Respond with ONLY a comma-separated list of 4-6 alternatives, best first.',
+        'No numbering, no explanations, no quotes around the list.'
+    ].filter(Boolean).join('\n');
+}
+
 // --- Result merging for hybrid mode ---
 
-function parseErrorsFromResult(result) {
-    if (!result) return [];
-    const errors = [];
-    const matches = Array.from(result.matchAll(/❌\s*"([^"]+)"\s*→\s*✅\s*"([^"]+)"/g));
-    const reasons = Array.from(result.matchAll(/Reason:\s*(.+)/gi));
-    matches.forEach((m, i) => {
-        errors.push({ incorrect: m[1], correct: m[2], reason: reasons[i]?.[1] || '' });
-    });
-    return errors;
-}
-
-function resultIsClean(r) {
-    if (!r) return true;
-    const low = r.toLowerCase();
-    return r.includes('✓') || low.includes('no error') || low.includes('no issue') ||
-           low.includes('no mistake') || low.includes('grammatically correct');
-}
+// --- Result merging for hybrid mode (delegated to grammar-core) ---
 
 function mergeGrammarResults(ltResult, llmResult) {
-    if (!ltResult && !llmResult) return '✓ No errors found.';
-    if (!ltResult) return llmResult;
-    if (!llmResult) return ltResult;
-
-    if (resultIsClean(ltResult) && resultIsClean(llmResult)) return '✓ No errors found.';
-
-    const ltErrors = parseErrorsFromResult(ltResult);
-    const llmErrors = parseErrorsFromResult(llmResult);
-
-    const merged = new Map();
-    for (const err of llmErrors) merged.set(err.incorrect.toLowerCase(), err);
-    for (const err of ltErrors) {
-        const key = err.incorrect.toLowerCase();
-        if (!merged.has(key)) merged.set(key, err);
-    }
-
-    if (merged.size === 0) {
-        if (!resultIsClean(llmResult)) return llmResult;
-        if (!resultIsClean(ltResult)) return ltResult;
-        return '✓ No errors found.';
-    }
-
-    return Array.from(merged.values()).map(e => {
-        let line = `❌ "${e.incorrect}" → ✅ "${e.correct}"`;
-        if (e.reason) line += `\nReason: ${e.reason}`;
-        return line;
-    }).join('\n\n');
+    return GC.mergeGrammarResults(ltResult, llmResult);
 }
 
 // --- Core handlers ---
 
 async function handleGrammarCheck(text, settings, domain) {
+    await hydrateCache();
+    await hydrateStats();
     const apiType = settings.apiType || 'openai';
     const cached = getCached(text, apiType);
     if (cached) return cached;
 
-    sessionStats.checksRun++;
-
     let result;
-    if (apiType === 'languagetool') {
-        result = await callLanguageTool(text, settings.language);
-    } else if (apiType === 'hybrid') {
-        result = await handleHybridCheck(text, settings, domain);
-    } else {
-        result = await callLLM(text, settings, buildGrammarPrompt(settings.language, domain));
+    try {
+        if (apiType === 'languagetool') {
+            result = await callLanguageTool(text, settings.language);
+        } else if (apiType === 'hybrid') {
+            result = await handleHybridCheck(text, settings, domain);
+        } else {
+            // Rate limit pure-LLM grammar checks (cost guard).
+            checkRateLimit(settings.rateLimitPerMin);
+            result = await callLLM(text, settings, buildGrammarPrompt(settings.language, domain, settings.goalPreset));
+        }
+    } catch (err) {
+        // Offline-first fallback: if the network/API is unreachable, run the
+        // local rule checker so the extension is never completely dead.
+        if (isNetworkError(err)) {
+            result = GC.offlineCheck(text);
+        } else {
+            throw err;
+        }
     }
 
-    // Count errors found
-    const errorMatches = Array.from((result || '').matchAll(/❌/g));
-    sessionStats.errorsFound += errorMatches.length;
+    sessionStats.checksRun++;
+
+    // Count + record errors found.
+    const edits = GC.parseErrors(result);
+    sessionStats.errorsFound += edits.length;
+    persistStats();
+    if (edits.length > 0 && !GC.isOfflineResult(result)) {
+        recordMistakes(edits).catch(() => {});
+    }
 
     setCache(text, apiType, result);
     return result;
 }
 
+function isNetworkError(err) {
+    const m = (err && err.message || '').toLowerCase();
+    return m.includes('cannot reach') || m.includes('failed to fetch') ||
+           m.includes('networkerror') || m.includes('network error') ||
+           m.includes('load failed');
+}
+
 async function handleHybridCheck(text, settings, domain) {
     const llmSettings = { ...settings, apiType: settings.hybridLlmType || 'openai' };
 
-    const [ltSettled, llmSettled] = await Promise.allSettled([
-        callLanguageTool(text, settings.language),
-        callLLM(text, llmSettings, buildGrammarPrompt(settings.language, domain))
-    ]);
+    // Apply rate limit to the LLM half of hybrid; if exceeded, fall back to LT-only.
+    let llmAllowed = true;
+    try { checkRateLimit(settings.rateLimitPerMin); } catch (_) { llmAllowed = false; }
 
-    const lt = ltSettled.status === 'fulfilled' ? ltSettled.value : null;
-    const llm = llmSettled.status === 'fulfilled' ? llmSettled.value : null;
+    const tasks = [callLanguageTool(text, settings.language)];
+    if (llmAllowed) {
+        tasks.push(callLLM(text, llmSettings, buildGrammarPrompt(settings.language, domain, settings.goalPreset)));
+    }
+
+    const settled = await Promise.allSettled(tasks);
+    const lt = settled[0].status === 'fulfilled' ? settled[0].value : null;
+    const llm = settled[1] && settled[1].status === 'fulfilled' ? settled[1].value : null;
 
     if (!lt && !llm) {
-        const err = llmSettled.reason?.message || ltSettled.reason?.message || 'Both APIs failed';
+        const err = settled[1]?.reason?.message || settled[0].reason?.message || 'Both APIs failed';
         throw new Error(err);
     }
 
@@ -491,6 +753,16 @@ function computeMaxTokens(text) {
     return Math.min(Math.max(500, Math.ceil(text.length / 2)), 2000);
 }
 
+// Translation needs extra room:
+//   - Output = "--- Translation ---" header + translated text (can be longer than source in verbose languages)
+//             + "--- Grammar Check ---" header + grammar results
+//   - 1 token ≈ 4 chars for English; Vietnamese/Thai etc. can use more tokens per character
+//   - Formula: 2× estimated input tokens + 500 overhead, min 1500, max 4000
+function computeTranslateMaxTokens(text) {
+    const estimatedInputTokens = Math.ceil(text.length / 4);
+    return Math.min(Math.max(1500, estimatedInputTokens * 2 + 500), 4000);
+}
+
 function resolveLlmType(settings) {
     const t = settings.apiType || 'openai';
     if (t === 'hybrid') return settings.hybridLlmType || 'openai';
@@ -498,11 +770,11 @@ function resolveLlmType(settings) {
     return t;
 }
 
-async function callLLM(text, settings, systemPrompt) {
+async function callLLM(text, settings, systemPrompt, maxTokens) {
     const llmType = resolveLlmType(settings);
     if (!llmType) throw new Error('This feature requires an LLM provider. Change provider in Settings.');
-    if (llmType === 'openai') return await callOpenAI(text, settings, systemPrompt);
-    return await callCustomAPI(text, settings, systemPrompt);
+    if (llmType === 'openai') return await callOpenAI(text, settings, systemPrompt, maxTokens);
+    return await callCustomAPI(text, settings, systemPrompt, maxTokens);
 }
 
 // --- Streaming LLM ---
@@ -616,7 +888,7 @@ async function readSSEStream(response, onChunk) {
     return fullText;
 }
 
-async function callOpenAI(text, settings, systemPrompt) {
+async function callOpenAI(text, settings, systemPrompt, maxTokens) {
     if (!settings.openaiApiKey) {
         throw new Error('OpenAI API key not configured. Go to extension Options.');
     }
@@ -636,7 +908,7 @@ async function callOpenAI(text, settings, systemPrompt) {
                     { role: 'user', content: text }
                 ],
                 temperature: 0.3,
-                max_tokens: computeMaxTokens(text)
+                max_tokens: maxTokens || computeMaxTokens(text)
             })
         });
     } catch (e) {
@@ -653,7 +925,7 @@ async function callOpenAI(text, settings, systemPrompt) {
     return data.choices[0].message.content;
 }
 
-async function callCustomAPI(text, settings, systemPrompt) {
+async function callCustomAPI(text, settings, systemPrompt, maxTokens) {
     if (!settings.localUrl || !settings.localModel) {
         throw new Error('API endpoint not configured. Go to extension Options.');
     }
@@ -684,7 +956,7 @@ async function callCustomAPI(text, settings, systemPrompt) {
                     { role: 'user', content: text }
                 ],
                 temperature: 0.3,
-                max_tokens: computeMaxTokens(text),
+                max_tokens: maxTokens || computeMaxTokens(text),
                 stream: false
             })
         });
