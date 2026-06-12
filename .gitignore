@@ -1,0 +1,16 @@
+# CodeGraph local index (machine-specific)
+.codegraph/
+
+# Dependencies
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment / secrets
+.env
+.env.*
