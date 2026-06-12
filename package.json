@@ -4,6 +4,7 @@
   "private": true,
   "description": "Grammar checker, rewriter, tone detector & translator browser extension",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "push": "powershell -ExecutionPolicy Bypass -File ./push-to-github.ps1"
   }
 }
